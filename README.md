@@ -6,6 +6,17 @@ Mohalla is an AI buying co-op for Paytm merchants, built for the **Paytm Build f
 
 It forecasts what each neighbourhood shop will need from its Paytm payment data, groups nearby shops into one bulk order so they unlock distributor discount slabs, holds the money in an all-or-nothing smart-contract escrow on Sepolia (merchants never see crypto or pay gas), offers instant **Pool Credit**, and releases each shop's payment only when it scans the delivery QR. It is voice-first in Hindi and Hinglish, designed as a new skill for Paytm's AI Soundbox.
 
+## Live demo
+
+| | URL |
+|---|---|
+| Website + app | **https://paytm-mohalla.vercel.app** |
+| Merchant app (Ramesh) | https://paytm-mohalla.vercel.app/login → *Ramesh Gupta* |
+| Paytm ops console + Demo Director | https://paytm-mohalla.vercel.app/login → *Paytm Ops* |
+| API (FastAPI docs) | https://paytm-mohalla-api.onrender.com/docs |
+
+The API runs on Render's free plan and sleeps after 15 minutes without traffic; the first request after that takes about a minute. Open `/health` a couple of minutes before a demo.
+
 ## Repository layout
 
 ```
@@ -33,6 +44,17 @@ uv venv .venv && uv pip install -p .venv -r requirements.txt
 cd frontend
 npm install && cp .env.example .env.local && npm run dev   # http://localhost:3000
 ```
+
+## Deployment (free tiers)
+
+| Part | Where | How it deploys |
+|---|---|---|
+| Frontend | Vercel (Hobby) | Every push to `main` (project root: `frontend/`) |
+| Backend | Render (free web service, Singapore) | Every push to `main`; see `render.yaml` |
+| Database + auth | Supabase (Postgres, Mumbai) | `backend/`: `python -m app.scripts.init_db` then `python -m app.scripts.seed` |
+| Contracts | Sepolia | `contracts/deploy.py --network sepolia` (web3.py) |
+
+Secrets live only in each platform's environment settings and in git-ignored `.env` files. See `backend/.env.example` and `frontend/.env.example`.
 
 ## Live contracts (Sepolia)
 
