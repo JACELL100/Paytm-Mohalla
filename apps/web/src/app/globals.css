@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Mohalla design tokens. Semantic colours flip under `.dark`.
+   One confident accent (electric blue) + deep navy + semantic green.
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #f5f6f8;
+  --bg-elev: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f1f3f6;
+  --surface-3: #e8ebf0;
+  --ink: #0b1220;
+  --ink-2: #4a5468;
+  --ink-3: #8790a2;
+  --line: rgba(11, 18, 32, 0.08);
+  --line-strong: rgba(11, 18, 32, 0.14);
+  --brand: #00baf2;
+  --brand-ink: #0077b6;
+  --brand-soft: rgba(0, 186, 242, 0.1);
+  --navy: #002e6e;
+  --navy-2: #0a3d85;
+  --ok: #12a150;
+  --ok-soft: rgba(18, 161, 80, 0.1);
+  --warn: #e08a00;
+  --warn-soft: rgba(224, 138, 0, 0.12);
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.1);
+  --glass: rgba(255, 255, 255, 0.72);
+  --shadow-color: 220 40% 12%;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #05080f;
+  --bg-elev: #0b111c;
+  --surface: #0e1521;
+  --surface-2: #141c2a;
+  --surface-3: #1c2636;
+  --ink: #eef2f8;
+  --ink-2: #a3adbf;
+  --ink-3: #6b7689;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --brand: #22c6ff;
+  --brand-ink: #5fd6ff;
+  --brand-soft: rgba(34, 198, 255, 0.12);
+  --navy: #0a3d85;
+  --navy-2: #1653a8;
+  --ok: #2fd176;
+  --ok-soft: rgba(47, 209, 118, 0.12);
+  --warn: #ffb224;
+  --warn-soft: rgba(255, 178, 36, 0.12);
+  --danger: #ff6369;
+  --danger-soft: rgba(255, 99, 105, 0.12);
+  --glass: rgba(14, 21, 33, 0.7);
+  --shadow-color: 220 60% 2%;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-navy: var(--navy);
+  --color-navy-2: var(--navy-2);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-glass: var(--glass);
+
+  --font-sans: var(--font-geist-sans), var(--font-noto-deva), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-deva: var(--font-noto-deva), var(--font-geist-sans), sans-serif;
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+
+  --shadow-soft: 0 1px 2px hsl(var(--shadow-color) / 0.04), 0 4px 16px -4px hsl(var(--shadow-color) / 0.08);
+  --shadow-lift: 0 2px 4px hsl(var(--shadow-color) / 0.04), 0 18px 40px -12px hsl(var(--shadow-color) / 0.18);
+  --shadow-float: 0 30px 80px -20px hsl(var(--shadow-color) / 0.35), 0 10px 24px -12px hsl(var(--shadow-color) / 0.2);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  --animate-float: float 6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(0.85); opacity: 0.55; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-geist-sans), var(--font-noto-deva), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 30%, transparent);
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .hairline {
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .glass {
+    background: var(--glass);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .lang-hi {
+    font-family: var(--font-noto-deva), var(--font-geist-sans), sans-serif;
+    line-height: 1.55;
+  }
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, var(--line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .text-gradient-brand {
+    background: linear-gradient(120deg, var(--brand) 0%, #3d7bff 55%, var(--navy) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Leaflet: calm controls that match the design system */
+.leaflet-container {
+  background: var(--surface-2);
+  font-family: var(--font-geist-sans), var(--font-noto-deva), sans-serif;
+}
+/* OSM raster tiles, toned down to sit quietly under the data */
+.mohalla-tiles {
+  filter: saturate(0.25) contrast(0.95) brightness(1.03);
+}
+.dark .mohalla-tiles {
+  filter: invert(1) hue-rotate(185deg) brightness(0.82) contrast(0.9) saturate(0.35);
+}
+.leaflet-control-attribution {
+  background: color-mix(in oklab, var(--surface) 70%, transparent) !important;
+  color: var(--ink-3) !important;
+  font-size: 10px !important;
+  backdrop-filter: blur(8px);
+}
+.leaflet-control-attribution a {
+  color: var(--ink-2) !important;
+}
+.leaflet-bar a {
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+.leaflet-tooltip.mohalla-tip {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lift);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.leaflet-tooltip.mohalla-tip::before {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
