@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     qr_hmac_secret: str = "mohalla-dev-qr-secret"
     qr_ttl_minutes: int = 10
     frontend_origin: str | None = None
+    frontend_origin_regex: str | None = None  # e.g. https://paytm-mohalla.*\.vercel\.app
     public_api_url: str = "http://localhost:8000"
 
     @property

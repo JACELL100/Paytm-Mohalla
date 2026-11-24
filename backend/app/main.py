@@ -44,8 +44,9 @@ app = FastAPI(title="Mohalla API", version="1.0.0",
 origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
 if settings.frontend_origin:
     origins |= {o.strip() for o in settings.frontend_origin.split(",") if o.strip()}
-app.add_middleware(CORSMiddleware, allow_origins=sorted(origins), allow_credentials=True, allow_methods=["*"],
-                   allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=sorted(origins),
+                   allow_origin_regex=settings.frontend_origin_regex or None,  # e.g. Vercel preview URLs
+                   allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 static_dir = API_DIR / "static"
 static_dir.mkdir(exist_ok=True)
