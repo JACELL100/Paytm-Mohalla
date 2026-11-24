@@ -28,6 +28,6 @@ anvil
 # Sepolia: copy .env.example to .env and fill SEPOLIA_RPC_URL + DEPLOYER_PRIVATE_KEY
 .venv/Scripts/python deploy.py --network sepolia
 ```
-`deploy.py` compiles with solc 0.8.31 (EVM `osaka`) through `py-solc-x`, deploys both contracts, registers the two EAS schemas on Sepolia, writes `deployments/<network>.json`, and copies the ABIs and addresses into `apps/api/app/chain/abi/` for the backend.
+`deploy.py` compiles with solc 0.8.31 (EVM `osaka`) through `py-solc-x`, deploys both contracts, registers the two EAS schemas on Sepolia, writes `deployments/<network>.json`, and copies the ABIs and addresses into `backend/app/chain/abi/` for the backend.
 
 On Linux/macOS use `.venv/bin/python` instead of `.venv/Scripts/python`.

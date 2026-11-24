@@ -6,15 +6,15 @@ from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-API_DIR = Path(__file__).resolve().parents[2]  # apps/api
-REPO_ROOT = API_DIR.parents[1]
+API_DIR = Path(__file__).resolve().parents[2]  # backend/
+REPO_ROOT = API_DIR.parent
 
 ANVIL_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 ANVIL_MNEMONIC = "test test test test test test test test test test test junk"
 
 
 class Settings(BaseSettings):
-    # only apps/api/.env is read (real environment variables win). The repo-root .env is deliberately NOT
+    # only backend/.env is read (real environment variables win). The repo-root .env is deliberately NOT
     # loaded: it holds Supabase settings that would silently switch the zero-config dev mode to Postgres.
     model_config = SettingsConfigDict(env_file=str(API_DIR / ".env"), env_file_encoding="utf-8", extra="ignore",
                                       populate_by_name=True)

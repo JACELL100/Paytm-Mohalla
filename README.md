@@ -8,11 +8,31 @@ It forecasts what each neighbourhood shop will need from its Paytm payment data,
 
 ## Repository layout
 
-| Folder | What's inside |
-|---|---|
-| `contracts/` | Solidity contracts (`MockINR`, `MohallaPools`), Foundry tests, and a **web3.py** deploy script |
-| `docs/` | Implementation plan, frontend ⇄ backend API contract |
-| Frontend, backend, Supabase | Being built; this table is updated as they land |
+```
+Paytm-Mohalla/
+├── frontend/     Next.js: landing site, merchant app, distributor + Paytm ops consoles
+├── backend/      FastAPI: API, pool engine, voice agent, credit, trust, web3.py relayer
+│   └── ml/       Open-data pipeline (OpenStreetMap, Open-Meteo, holidays) + forecasting
+├── supabase/     Postgres schema and row-level security policies
+├── contracts/    Solidity (MockINR, MohallaPools), Foundry tests, web3.py deploy script
+└── docs/         Implementation plan, frontend ⇄ backend API contract
+```
+
+Each folder has its own README with setup and run commands.
+
+## Run it locally (no accounts needed)
+
+```bash
+# backend (SQLite + simulated chain by default)
+cd backend
+uv venv .venv && uv pip install -p .venv -r requirements.txt
+.venv/Scripts/python -m app.scripts.init_db && .venv/Scripts/python -m app.scripts.seed
+.venv/Scripts/python -m app --port 8000          # Linux/macOS: .venv/bin/python
+
+# frontend (new terminal)
+cd frontend
+npm install && cp .env.example .env.local && npm run dev   # http://localhost:3000
+```
 
 ## Live contracts (Sepolia)
 

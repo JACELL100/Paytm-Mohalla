@@ -24,7 +24,7 @@ from web3 import Web3
 from deploy import ANVIL_KEY, send
 
 HERE = Path(__file__).resolve().parent
-ABI_DIR = HERE.parent / "apps" / "api" / "app" / "chain" / "abi"
+ABI_DIR = HERE.parent / "backend" / "app" / "chain" / "abi"
 MNEMONIC = "test test test test test test test test test test test junk"
 Account.enable_unaudited_hdwallet_features()
 

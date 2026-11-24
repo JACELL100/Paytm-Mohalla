@@ -1,6 +1,6 @@
 # Mohalla API contract (frontend ⇄ backend)
 
-This file is the single source of truth between `apps/web` (Next.js, port 3000) and `apps/api` (FastAPI, port 8000).
+This file is the single source of truth between `frontend/` (Next.js, port 3000) and `backend/` (FastAPI, port 8000).
 If either side needs a change, update this file first.
 
 ## Conventions

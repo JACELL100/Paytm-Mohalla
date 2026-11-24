@@ -8,7 +8,7 @@ What it does:
     1. Compiles src/*.sol with solc 0.8.31 (EVM: osaka) through py-solc-x.
     2. Deploys MockINR (tINR) and MohallaPools.
     3. On Sepolia, registers the two EAS schemas (skipped if they already exist).
-    4. Writes deployments/<network>.json and copies the ABIs to apps/api/app/chain/abi/.
+    4. Writes deployments/<network>.json and copies the ABIs to backend/app/chain/abi/.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from web3 import Web3
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-API_ABI_DIR = ROOT / "apps" / "api" / "app" / "chain" / "abi"
+API_ABI_DIR = ROOT / "backend" / "app" / "chain" / "abi"
 SOLC_VERSION = "0.8.31"
 EVM_VERSION = "osaka"
 
@@ -230,7 +230,7 @@ def main():
         print(f"  EAS_SCHEMA_{k.upper()}_UID={v}")
     if args.network == "sepolia":
         print(f"  https://sepolia.etherscan.io/address/{pools}")
-    print(f"Saved deployments/{args.network}.json and ABIs to apps/api/app/chain/abi/")
+    print(f"Saved deployments/{args.network}.json and ABIs to backend/app/chain/abi/")
 
 
 if __name__ == "__main__":

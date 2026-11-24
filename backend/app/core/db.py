@@ -67,7 +67,7 @@ def _make_engine(url: str, driver: str | None = None):
             url = f"postgresql+{driver or pg_driver()}://" + url[len(prefix):]
             break
     if url.startswith("sqlite"):
-        # relative sqlite paths are relative to apps/api so CLI scripts and uvicorn agree
+        # relative sqlite paths are relative to backend/ so CLI scripts and uvicorn agree
         prefix = "sqlite+aiosqlite:///"
         path = url[len(prefix):] if url.startswith(prefix) else None
         if path and path.startswith("./"):

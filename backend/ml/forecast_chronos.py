@@ -1,7 +1,7 @@
 """Optional: Amazon Chronos-2 forecasts -> the same `forecasts` table the API reads.
 
     pip install -r ml/requirements-chronos.txt          # torch + chronos-forecasting>=2.0 (CPU is fine)
-    cd apps/api && python ../../ml/forecast_chronos.py --today 2026-12-26 [--limit 50]
+    cd backend && python ml/forecast_chronos.py --today 2026-12-26 [--limit 50]
 
 Chronos-2 forecasts each shop's total Paytm daily sales (p10/p50/p90, 28 days) using known-future covariates:
 festival x weather multiplier (holidays package + Open-Meteo forecast/climatology), rain, max temperature,
@@ -11,7 +11,7 @@ salary week and weekend. Category demand is then (as in plan 8.1):
 
 It writes rows with model='chronos-2' for the 7-day window starting --today (replacing existing rows for that
 window), so the API (`/m/home`, `/forecasts/{category}` reason) and the pool engine use them automatically.
-Uses the database from DATABASE_URL / apps/api/.env, like the API.
+Uses the database from DATABASE_URL / backend/.env, like the API.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "apps" / "api"))
+sys.path.insert(0, str(ROOT))  # ROOT = backend/
 
 import numpy as np  # noqa: E402
 

@@ -9,7 +9,7 @@ simulated chain, rule-based Hindi voice agent. Supabase, Sepolia/anvil and Groq 
 ## Setup (Windows / macOS / Linux, Python 3.11)
 
 ```bash
-cd apps/api
+cd backend
 uv venv .venv --python 3.11                       # or: python -m venv .venv
 uv pip install --python .venv/Scripts/python.exe -r requirements.txt   # macOS/Linux: .venv/bin/python
 # (slow network? export UV_HTTP_TIMEOUT=300)

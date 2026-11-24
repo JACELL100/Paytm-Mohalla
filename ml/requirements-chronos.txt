@@ -1,6 +1,0 @@
-# Optional: only for ml/forecast_chronos.py (Chronos-2 on CPU). The API does not need these.
-# Install into a separate env or on top of apps/api requirements:
-#   pip install -r apps/api/requirements.txt -r ml/requirements-chronos.txt
-chronos-forecasting>=2.0
-torch
-pandas>=2.1

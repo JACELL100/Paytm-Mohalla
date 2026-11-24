@@ -509,7 +509,7 @@ Every route except `/health` needs `Authorization: Bearer <supabase access token
 
 | | **Dev 1: Frontend** | **Dev 2: AI and data** | **Dev 3: Backend and chain** |
 |---|---|---|---|
-| Owns | `apps/web`, auth UI, all screens, i18n, map | `ml/`, forecast, pool engine, nudges, agent, TTS, bill reader | `apps/api` core, DB schema, contracts, relayer, EAS, credit, deployment |
+| Owns | `frontend/`, auth UI, all screens, i18n, map | `ml/`, forecast, pool engine, nudges, agent, TTS, bill reader | `backend/` core, DB schema, contracts, relayer, EAS, credit, deployment |
 | **24 Nov** | Supabase project + Google OAuth. Scaffold Next.js. Deploy to Vercel. | Groq key. Draft the data generator. | Alchemy key, operator wallet, **start the faucets**. Foundry scaffold. FastAPI scaffold. |
 | **25 Nov** | **Deck design** (section 16) | **Deck content:** problem, impact numbers | **Deck content:** architecture and business slides · lead submits by 22:00 |
 | **26 Nov** | Login, onboarding, merchant home shell, `SoundboxCard` | Generator done and seeded. Forecast job v1. | Migrations and RLS. Contracts + tests. Deploy to Sepolia and verify. |
@@ -600,13 +600,13 @@ The deck needs these 7 slides:
 - GitHub repo
 
 ```bash
-# apps/web/.env.local
+# frontend/.env.local
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=          # "publishable" key
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_SEPOLIA_EXPLORER=https://sepolia.etherscan.io
 
-# apps/api/.env
+# backend/.env
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=              # "secret" key, server only
 DATABASE_URL=postgresql+asyncpg://...pooler.supabase.com:6543/postgres

@@ -9,7 +9,7 @@ qrcode.react · @yudiel/react-qr-scanner · Supabase (`@supabase/ssr`) · Geist 
 ## Setup
 
 ```bash
-cd apps/web
+cd frontend
 npm install
 cp .env.example .env.local     # then edit
 npm run dev                    # http://localhost:3000

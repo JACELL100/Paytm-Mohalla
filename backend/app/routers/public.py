@@ -42,7 +42,7 @@ async def demo_state():
 
 @router.get("/meta/attributions")
 async def attributions():
-    """Open data used by the synthetic world (details: ml/DATA_SOURCES.md)."""
+    """Open data used by the synthetic world (details: backend/ml/DATA_SOURCES.md)."""
     return [
         {"text": "© OpenStreetMap contributors", "url": "https://www.openstreetmap.org/copyright",
          "licence": "ODbL 1.0", "used_for": "shop locations and types"},
