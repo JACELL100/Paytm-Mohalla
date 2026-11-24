@@ -31,6 +31,19 @@ log = logging.getLogger("mohalla.relayer")
 
 GAS = {"create_pool": 250_000, "mint": 120_000, "permit": 150_000, "commit": 260_000, "deliver": 220_000,
        "mark_failed": 100_000, "refund": 150_000, "attest": 450_000}
+# Sepolia's current gas schedule charges 1.4-2.5x more than a local anvil for the same calls
+# (measured: createPool 354k, mint 143k, permit 245k, commitFor 387k, confirmDelivery 306k,
+# EAS attest 1.15-1.27M).
+# Limits are ~1.5x the measured cost; unused gas is never charged.
+GAS_SEPOLIA = {"create_pool": 550_000, "mint": 250_000, "permit": 400_000, "commit": 600_000, "deliver": 500_000,
+               "mark_failed": 200_000, "refund": 350_000, "attest": 2_000_000}
+
+
+def gas_limit(kind: str) -> int:
+    table = GAS_SEPOLIA if settings.chain_mode == "sepolia" else GAS
+    return int(table[kind] * settings.gas_limit_multiplier)
+
+
 MAX_IN_FLIGHT = 30
 MAX_UINT = 2**256 - 1
 ZERO32 = b"\x00" * 32
@@ -131,7 +144,7 @@ class ChainClient:
     def send(self, fn, kind: str) -> str:
         if self.op_nonce is None:
             self.op_nonce = self.w3.eth.get_transaction_count(self.op.address, "pending")
-        tx = fn.build_transaction({"from": self.op.address, "nonce": self.op_nonce, "gas": GAS[kind],
+        tx = fn.build_transaction({"from": self.op.address, "nonce": self.op_nonce, "gas": gas_limit(kind),
                                    "chainId": self.chain_id, **self.fees()})
         signed = self.op.sign_transaction(tx)
         try:

@@ -8,6 +8,7 @@ which returns `confirm_action_id` so the app calls POST /actions/{id}/confirm).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -313,8 +314,12 @@ async def _exec_tool(session: AsyncSession, m: Merchant, name: str, args: dict, 
 async def llm_turn(session: AsyncSession, m: Merchant, text: str, lang: str) -> dict:
     c = llm.client()
     pending = await actions.open_actions(session, m)
+    state: dict = {"actions": {}, "confirm": None}
+    # open pools go straight into the prompt, so a "join" request needs one tool round instead of two
+    open_pools = await _exec_tool(session, m, "get_open_pools", {}, state)
     ctx = {"shop": m.name, "owner": m.owner_name, "demo_time": clock.iso(clock.now()),
            "wallet_balance_paise": m.wallet_balance_paise,
+           "open_pools": open_pools,
            "open_confirmation_cards": [{"action_id": str(a.id), "summary_en": a.summary_en} for a in pending]}
     system = (
         "You are Mohalla Saathi, a voice assistant on a Paytm Soundbox for an Indian kirana shopkeeper. "
@@ -327,7 +332,6 @@ async def llm_turn(session: AsyncSession, m: Merchant, text: str, lang: str) -> 
         "confirming it now. "
         "If they ask to join without a pool, pick the pool they are invited to. Context: " + json.dumps(ctx, ensure_ascii=False))
     messages: list[dict] = [{"role": "system", "content": system}, {"role": "user", "content": text}]
-    state: dict = {"actions": {}, "confirm": None}
     for _ in range(5):
         r = await c.chat.completions.create(model=settings.groq_model_agent, messages=messages, tools=TOOLS,
                                             tool_choice="auto", temperature=0.2, max_tokens=600,
@@ -379,8 +383,10 @@ async def turn(session: AsyncSession, m: Merchant, text: str | None, audio: byte
     result = None
     if settings.llm_enabled:
         try:
-            result = await llm_turn(session, m, transcript, lang)
-        except Exception as e:  # noqa: BLE001 - fall back to rules on any LLM problem
+            # a slow LLM must never stall the shopkeeper: past the budget, the rule-based parser answers
+            result = await asyncio.wait_for(llm_turn(session, m, transcript, lang),
+                                            timeout=settings.voice_llm_budget_seconds)
+        except Exception as e:  # noqa: BLE001 - fall back to rules on any LLM problem (incl. timeout)
             log.warning("LLM agent failed, using rules: %s", e)
             await session.rollback()
             await session.refresh(m)

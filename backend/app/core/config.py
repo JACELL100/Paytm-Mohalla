@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     groq_model_agent: str = "openai/gpt-oss-120b"
     groq_model_stt: str = "whisper-large-v3"
     groq_model_vision: str = "qwen/qwen3.8-27b"
-    llm_timeout_seconds: float = 20.0
+    llm_timeout_seconds: float = 8.0  # per Groq call (one retry)
+    voice_llm_budget_seconds: float = 12.0  # whole voice turn; past this the rule-based parser answers
 
     # chain
     chain_mode: str = "off"  # off | local | sepolia
@@ -64,6 +65,7 @@ class Settings(BaseSettings):
     eas_schema_commitment_uid: str | None = None
     fee_bps: int = 100
     sim_tx_delay_seconds: float = 1.5
+    gas_limit_multiplier: float = 1.0  # scale every relayer gas limit if a network reprices gas again
 
     # misc
     qr_hmac_secret: str = "mohalla-dev-qr-secret"
