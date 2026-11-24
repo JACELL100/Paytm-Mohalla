@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # database
     database_url: str = "sqlite+aiosqlite:///./mohalla.db"
     db_echo: bool = False
+    pg_driver: str = "auto"  # auto | psycopg | asyncpg (auto = psycopg when installed: 1 round trip/statement)
 
     # auth
     supabase_url: str | None = None

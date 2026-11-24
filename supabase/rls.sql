@@ -15,7 +15,8 @@ declare t text;
 begin
   foreach t in array array['profiles','merchants','daily_sales','transactions','skus','distributors','schemes',
                            'inventory','category_mix','invoices','forecasts','nudges','pools','pool_invites',
-                           'pool_commitments','deliveries','loans','trust_scores','chain_txs','pending_actions']
+                           'pool_commitments','deliveries','loans','trust_scores','chain_txs','pending_actions',
+                           'demo_snapshots']
   loop
     execute format('alter table public.%I enable row level security', t);
   end loop;

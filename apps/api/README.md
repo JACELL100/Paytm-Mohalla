@@ -22,8 +22,13 @@ cp .env.example .env                              # optional; every value has a 
 ```bash
 python -m app.scripts.init_db            # create tables (add --drop to start clean)
 python -m app.scripts.seed               # drop + create + load synthetic data + demo state (~30-60 s on SQLite)
-python -m app.scripts.seed --reset       # only rebuild the demo state (same as POST /demo/reset, ~1 s)
+python -m app.scripts.seed --reset       # only rebuild the demo state (same as POST /demo/reset)
 ```
+
+`POST /demo/reset` restores a **snapshot** of the seeded demo state (table `demo_snapshots`, captured by the
+seed): one TRUNCATE + one bulk insert per table, with timestamps shifted to the demo clock and fresh pool ids
+(on-chain ids must be unique). ~15 statements / ~2 s on Supabase. If the snapshot is missing or stale (wallet
+mnemonic or demo settings changed), it rebuilds the state the slow way and re-captures.
 
 The seed imports `ml/` (repo root): 300 shops around Marol grounded in OpenStreetMap locations, Open-Meteo
 weather and `holidays` festival dates (cached in `ml/data/`, works offline; see `ml/DATA_SOURCES.md`),
@@ -33,9 +38,13 @@ stock, category mix, forecasts (`ml/forecast_simple.py`), and the seeded demo st
 ## Run
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+python -m app --port 8000            # recommended (add --reload while developing)
+# or: uvicorn app.main:app --reload --port 8000
 ```
 
+`python -m app` is uvicorn on a selector event loop, so on Windows the fast psycopg Postgres driver works too
+(plain `uvicorn` on Windows uses a Proactor loop; the API then logs a warning and falls back to asyncpg,
+about 2x slower per statement against Supabase). With SQLite both behave the same.
 Background loops run inside the process: the relayer (every 0.5 s) and the pool closer (every 10 s).
 
 ## Test
@@ -67,6 +76,26 @@ curl localhost:8000/ops/kpis -H "Authorization: Bearer dev-ops"
 | **Groq** (voice agent, Whisper STT, LLM nudges) | `GROQ_API_KEY` (+ optional `GROQ_MODEL_AGENT/STT/VISION`). Any Groq error falls back to the rule-based parser and templates. |
 | **Local chain (anvil)** | start anvil, `cd contracts && python deploy.py --network local` (writes `app/chain/abi/deployment.local.json`), then `CHAIN_MODE=local`. Defaults: RPC `http://127.0.0.1:8545`, anvil key #0 as operator, anvil mnemonic for shop wallets (index `100 + shop_no`, so merchants hold 0 ETH). |
 | **Sepolia** | `CHAIN_MODE=sepolia`, `RPC_URL`, `OPERATOR_PRIVATE_KEY`, and a **fresh** `MERCHANT_MNEMONIC` (the API refuses the anvil one: its addresses have EIP-7702 code on Sepolia). Addresses/EAS schema UIDs come from `deployment.sepolia.json`. After changing the mnemonic run `POST /demo/reset` (wallet addresses are re-derived). Each delivery is also attested on EAS; `/trust/me` then links to sepolia.easscan.org. |
+
+## Performance (remote Postgres)
+
+On Supabase every SQL statement is a network round trip, so requests are written to a statement budget,
+enforced by `tests/test_perf.py` (counts are DB-independent, asserted on SQLite):
+
+| Request | Statements | Supabase, from a laptop in Mumbai (psycopg) |
+|---|---|---|
+| GET /m/home | 6 | ~0.4 s |
+| GET /pools/{id} | 3 | ~0.25 s |
+| GET /ops/pools, /d/orders | 3-4 | ~0.25 s |
+| GET /ops/kpis, /ops/hexes | 3 (then cached until the next write) | ~0.1 s |
+| POST /actions/{id}/confirm | 11 | ~0.65 s |
+| POST /demo/reset | 15 (SQLite: 23) | ~2 s |
+
+How: pool lists load in 2 statements (`pools.load_views`: one joined query for pools + the viewer's
+invite/commitment/delivery/loan/txs, one for all members); static data (SKUs, distributors, schemes, shop
+names/locations, category mixes) is cached in-process (`services/cache.py`); writes are batched (one flush for
+outbox rows, executemany updates); trust scores are mirrored in memory; KPI/hex aggregates are cached until the
+next write; psycopg 3 sends each statement in one round trip.
 
 ## How the chain integration works
 

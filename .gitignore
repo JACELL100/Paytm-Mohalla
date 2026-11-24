@@ -50,3 +50,6 @@ ml/out/
 Thumbs.db
 .vscode/
 .idea/
+
+# local tool settings
+.claude/

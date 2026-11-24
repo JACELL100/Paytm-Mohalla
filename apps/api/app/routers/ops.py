@@ -15,8 +15,7 @@ router = APIRouter(prefix="/ops", tags=["ops"])
 
 @router.get("/kpis")
 async def kpis(user: CurrentUser = Depends(ops_user), session: AsyncSession = Depends(get_session)):
-    await pools.close_expired(session)
-    return await ops.kpis(session)
+    return await ops.kpis(session)  # expired pools are closed by the background closer within 10 s
 
 
 @router.get("/hexes")
@@ -26,11 +25,11 @@ async def hexes(user: CurrentUser = Depends(ops_user), session: AsyncSession = D
 
 @router.get("/pools")
 async def ops_pools(user: CurrentUser = Depends(ops_user), session: AsyncSession = Depends(get_session)):
-    await pools.close_expired(session)
-    ps = (await session.execute(select(Pool).where(Pool.status != "draft"))).scalars().all()
+    """3 statements: auth, pools, members."""
+    views = await pools.fresh_views(session, Pool.status != "draft")
     order = {"open": 0, "funded": 1, "settled": 2, "failed": 3}
-    ps = sorted(ps, key=lambda p: (order.get(p.status, 9), -p.created_at.timestamp()))[:100]
-    return [await pools.serialize(session, p, None) for p in ps]
+    views = sorted(views, key=lambda v: (order.get(v.pool.status, 9), -v.pool.created_at.timestamp()))[:100]
+    return await pools.serialize_many(session, views, viewer=False)
 
 
 @router.get("/txs")

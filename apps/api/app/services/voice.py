@@ -49,17 +49,13 @@ def sku_keywords(s: Sku) -> set[str]:
 
 # ------------------------------------------------------------------ tools (shared by LLM + rules)
 async def candidate_pools(session: AsyncSession, m: Merchant) -> list[Pool]:
-    invites, _ = await pools.merchant_pools(session, m)
-    joined = {r[0] for r in (await session.execute(select(PoolCommitment.pool_id)
-                                                   .where(PoolCommitment.merchant_id == m.id))).all()}
-    others = (await session.execute(select(Pool).where(Pool.status == "open").order_by(Pool.deadline))).scalars().all()
-    out = list(invites)
-    for p in others:
-        if p.id in joined or p in out:
-            continue
-        if haversine_km(m.lat, m.lng, p.center_lat, p.center_lng) <= 3.5 and await pools.visible_to_merchant(session, p, m):
-            out.append(p)
-    return out
+    """Open pools this shop can join: invited ones first, then visible pools nearby (2 statements)."""
+    views = [v for v in await pools.fresh_views(session, Pool.status == "open", m.id) if v.mine is None]
+    invited = sorted([v for v in views if v.invite], key=lambda v: v.pool.deadline)
+    near = sorted([v for v in views if not v.invite and v.visible_to_viewer()
+                   and haversine_km(m.lat, m.lng, v.pool.center_lat, v.pool.center_lng) <= 3.5],
+                  key=lambda v: v.pool.deadline)
+    return [v.pool for v in invited + near]
 
 
 async def pool_brief(session: AsyncSession, p: Pool, m: Merchant) -> dict:

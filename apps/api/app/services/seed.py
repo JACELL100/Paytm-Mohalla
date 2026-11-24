@@ -137,6 +137,9 @@ async def seed_static(session: AsyncSession, seed: int = 42) -> None:
                             distributor_id=DEMO_DISTRIBUTOR_ID if p["role"] == "distributor" else None,
                             created_at=now))
     await session.commit()
+    from . import cache
+
+    cache.invalidate_all()
     log.info("static seed done in %.1fs", time.time() - t0)
 
 
@@ -247,14 +250,16 @@ async def _open_pool(session, rng, *, dist_key, sku_code, target, disc_bps, dead
                                 deadline=now + timedelta(minutes=deadline_minutes),
                                 delivery_deadline=now + timedelta(days=2), created_at=now - timedelta(hours=3),
                                 tx_simulated=off)
+    joins = []
     for i, (m, c) in enumerate(zip(chosen, member_cases)):
         at = now - timedelta(minutes=150 - i * (140 // max(1, len(chosen))))
         session.add(PoolInvite(pool_id=p.id, merchant_id=m.id, suggested_cases=c,
                                reason={"event": "", "uplift": 1.0, "stock_units": 0, "need_cases": c},
                                status="invited", created_at=now - timedelta(hours=3)))
-        await session.flush()
         m.wallet_balance_paise = max(m.wallet_balance_paise, c * p.case_price_paise)
-        await pools.apply_commit(session, p, m, c, at=at, simulated_tx=off)
+        joins.append(pools.Join(m, c, at=at))
+    await session.flush()
+    await pools.commit_many(session, p, joins, [], simulated_tx=off)
     for m in members[len(member_cases): len(member_cases) + extra_invites]:
         session.add(PoolInvite(pool_id=p.id, merchant_id=m.id, suggested_cases=rng.randint(2, 4),
                                reason={"event": "", "uplift": 1.0, "stock_units": 0, "need_cases": 3},
@@ -356,10 +361,31 @@ async def seed_dynamic(session: AsyncSession) -> dict:
     await session.execute(insert(TrustScore), rows)
     await session.commit()
     log.info("dynamic seed done in %.2fs", time.time() - t0)
-    return {"pools": [str(cola.id), str(chips.id), str(oil.id)], "trust": score, "seconds": round(time.time() - t0, 2)}
+    return {"pools": [str(cola.id), str(chips.id), str(oil.id)], "trust": score, "_now": now}
 
 
 async def reset(session: AsyncSession) -> dict:
+    """Restore the seeded demo state: fast path from the snapshot (~15 statements on Postgres), else a full
+    seed_dynamic followed by a snapshot capture."""
+    from ..chain import relayer
+    from . import cache, snapshot
+
+    t0 = time.time()
     clock.clock.reset()
+    relayer.reset_local_state()
+    nudges.reset_stamp()
     async with pools.POOL_LOCK:
-        return await seed_dynamic(session)
+        info = await snapshot.restore(session)
+        mode = "snapshot"
+        if info is None:
+            mode = "full"
+            info = await seed_dynamic(session)
+            await snapshot.capture(session, info.pop("_now"))
+            cache.invalidate_static()  # wallet addresses may have been re-derived
+        elif "trust" not in info:
+            info["trust"] = (await session.execute(select(TrustScore.score).where(
+                TrustScore.merchant_id == DEMO_MERCHANT_ID))).scalar_one_or_none()
+    trust.clear_cache()
+    cache.invalidate_claimed()
+    cache.bump()
+    return {**info, "mode": mode, "seconds": round(time.time() - t0, 2)}

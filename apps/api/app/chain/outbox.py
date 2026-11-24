@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,17 +16,25 @@ def fake_hash(seed: str) -> str:
     return "0x" + hashlib.sha256(f"mohalla-sim:{seed}".encode()).hexdigest()
 
 
-async def enqueue(session: AsyncSession, kind: str, ref: dict, depends_on: int | None = None,
-                  simulated: bool = False) -> ChainTx:
-    """Queue a chain transaction. `simulated=True` records it as already done (seed/history)."""
-    now = clock.now()
+def new_tx(kind: str, ref: dict, depends_on: int | None = None, simulated: bool = False, at=None) -> ChainTx:
+    """Build an outbox row (not yet added). `simulated=True` records it as already done (seed/history)."""
+    now = at or clock.now()
     tx = ChainTx(kind=kind, ref=ref, status="pending", depends_on=depends_on, created_at=now, updated_at=now,
                  attempts=0)
-    session.add(tx)
-    await session.flush()
     if simulated:
         tx.status = "simulated"
-        tx.tx_hash = fake_hash(f"{tx.id}:{kind}:{sorted(ref.items())}")
+        tx.tx_hash = fake_hash(f"{kind}:{sorted(ref.items())}:{uuid.uuid4()}")
+    return tx
+
+
+async def enqueue(session: AsyncSession, kind: str, ref: dict, depends_on: int | None = None,
+                  simulated: bool = False, flush: bool = False) -> ChainTx:
+    """Queue a chain transaction. Rows are inserted with the caller's next flush/commit;
+    pass flush=True only when the new row's id is needed right away (e.g. for depends_on)."""
+    tx = new_tx(kind, ref, depends_on, simulated)
+    session.add(tx)
+    if flush:
+        await session.flush()
     return tx
 
 

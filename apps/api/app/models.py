@@ -302,3 +302,15 @@ class PendingAction(Base):
 
 Index("ix_commitments_merchant", PoolCommitment.merchant_id)
 Index("ix_invites_merchant", PoolInvite.merchant_id)
+
+
+class DemoSnapshot(Base):
+    """The seeded demo state (all dynamic tables) captured once after a full seed, so POST /demo/reset can
+    restore it with a handful of bulk statements. Stored in the DB so it survives restarts (Render's disk is
+    ephemeral)."""
+
+    __tablename__ = "demo_snapshots"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # always 1
+    created_at: Mapped[datetime] = mapped_column(TZDateTime)
+    meta: Mapped[dict] = mapped_column(JSON)
+    data: Mapped[dict] = mapped_column(JSON)

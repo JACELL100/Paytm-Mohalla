@@ -11,6 +11,7 @@ import asyncio
 import logging
 import time
 
+from ..core.loops import use_selector_policy
 from ..core.db import SessionLocal, engine
 from ..services import seed
 from .init_db import init
@@ -34,6 +35,7 @@ def main() -> None:
     ap.add_argument("--reset", action="store_true", help="only rebuild the dynamic demo state")
     ap.add_argument("--seed", type=int, default=42)
     a = ap.parse_args()
+    use_selector_policy()
     asyncio.run(run(a.reset, a.seed))
 
 

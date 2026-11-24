@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .core.config import ANVIL_MNEMONIC, API_DIR, settings
+from .core.db import ensure_loop_compatible
 from .jobs import scheduler
 from .routers import demo, distributor, me, merchant, ops, public
 
@@ -30,6 +31,7 @@ def check_config() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     check_config()
+    await ensure_loop_compatible()
     tasks = scheduler.start()
     yield
     await scheduler.stop(tasks)

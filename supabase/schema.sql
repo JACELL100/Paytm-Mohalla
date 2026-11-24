@@ -19,6 +19,14 @@ CREATE TABLE IF NOT EXISTS chain_txs (
 );
 CREATE INDEX IF NOT EXISTS ix_chain_txs_status ON chain_txs (status);
 
+CREATE TABLE IF NOT EXISTS demo_snapshots (
+	id INTEGER NOT NULL, 
+	created_at TIMESTAMP WITH TIME ZONE NOT NULL, 
+	meta JSON NOT NULL, 
+	data JSON NOT NULL, 
+	PRIMARY KEY (id)
+);
+
 CREATE TABLE IF NOT EXISTS distributors (
 	id UUID NOT NULL, 
 	key VARCHAR(24) NOT NULL, 

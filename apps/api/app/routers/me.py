@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.auth import CurrentUser, current_user, load_user
 from ..core.db import get_session
 from ..models import Distributor, Merchant, Profile
+from ..services import cache
 from ..services.seed import DEMO_DISTRIBUTOR_ID
 
 router = APIRouter(tags=["profile"])
@@ -59,6 +60,7 @@ async def patch_me(body: PatchMe, user: CurrentUser = Depends(current_user),
         m = await session.get(Merchant, p.merchant_id)
         m.lang = body.lang
     await session.commit()
+    cache.invalidate_static()  # MerchantInfo.lang
     return me_dict(await load_user(session, p))
 
 
@@ -105,4 +107,5 @@ async def onboarding(body: OnboardingBody, user: CurrentUser = Depends(current_u
     elif body.role == "distributor":
         p.distributor_id = DEMO_DISTRIBUTOR_ID
     await session.commit()
+    cache.invalidate_claimed()
     return me_dict(await load_user(session, p))

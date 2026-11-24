@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..chain.config import easscan_url
@@ -15,8 +15,8 @@ from ..core import clock
 from ..core.auth import CurrentUser, current_user, merchant_user
 from ..core.config import settings
 from ..core.db import get_session
-from ..models import ChainTx, Delivery, Nudge, Pool, PoolCommitment, PoolInvite, Sku
-from ..services import actions, credit, forecasts, nudges, pools, qr, trust, voice
+from ..models import ChainTx, Nudge, Pool, PoolCommitment, PoolInvite
+from ..services import actions, cache, credit, forecasts, nudges, pools, qr, trust, voice
 from ..services.common import haversine_km, trust_band
 from .me import merchant_dict
 
@@ -34,19 +34,21 @@ class DeliveryConfirmBody(BaseModel):
 
 @router.get("/m/home")
 async def home(user: CurrentUser = Depends(merchant_user), session: AsyncSession = Depends(get_session)):
+    """6 statements when warm: auth, pools (+ viewer joins), members, nudges, forecasts, stock."""
     m = user.merchant
-    invites, active = await pools.merchant_pools(session, m)
+    views = await pools.merchant_views(session, m)
+    invites, active, savings = pools.split_merchant_views(views)
     ns = (await session.execute(select(Nudge).where(Nudge.merchant_id == m.id)
                                 .order_by(Nudge.created_at.desc()).limit(10))).scalars().all()
     score = await trust.stored_score(session, m)
-    await session.refresh(m)
+    fc = await forecasts.forecast_summaries(session, m, top=3, invited_sku_ids=[v.pool.sku_id for v in invites])
     return {
         "merchant": merchant_dict(m),
         "nudges": [nudges.nudge_dict(n, settings.public_api_url) for n in ns],
-        "forecasts": await forecasts.forecast_summaries(session, m, top=3),
-        "invites": [await pools.serialize(session, p, m) for p in invites],
-        "active_pools": [await pools.serialize(session, p, m) for p in active],
-        "savings": await pools.savings_summary(session, m),
+        "forecasts": fc,
+        "invites": await pools.serialize_many(session, invites, viewer=True),
+        "active_pools": await pools.serialize_many(session, active, viewer=True),
+        "savings": savings,
         "trust": {"score": score, "band": trust_band(score)},
         "wallet": {"balance_paise": int(m.wallet_balance_paise)},
     }
@@ -79,50 +81,41 @@ async def forecast(category: str, user: CurrentUser = Depends(merchant_user),
 @router.get("/pools")
 async def list_pools(scope: Literal["near", "mine", "all"] = Query("near"), user: CurrentUser = Depends(current_user),
                      session: AsyncSession = Depends(get_session)):
-    await pools.close_expired(session)
-    q = select(Pool).where(Pool.status != "draft")
     m = user.merchant if user.role == "merchant" else None
+    where = Pool.status != "draft"
+    if scope == "near":
+        where = Pool.status.in_(("open", "funded"))
+    if m is not None and scope == "mine":
+        where = and_(where, or_(Pool.id.in_(select(PoolInvite.pool_id).where(PoolInvite.merchant_id == m.id)),
+                                Pool.id.in_(select(PoolCommitment.pool_id).where(PoolCommitment.merchant_id == m.id))))
+    elif m is None and scope == "mine" and user.role == "distributor" and user.distributor:
+        where = and_(where, Pool.distributor_id == user.distributor.id)
+    views = await pools.fresh_views(session, where, m.id if m else None)
     if m is not None:
-        if scope == "mine":
-            ids = {r[0] for r in (await session.execute(select(PoolInvite.pool_id)
-                                                        .where(PoolInvite.merchant_id == m.id))).all()}
-            ids |= {r[0] for r in (await session.execute(select(PoolCommitment.pool_id)
-                                                         .where(PoolCommitment.merchant_id == m.id))).all()}
-            rows = (await session.execute(q.where(Pool.id.in_(ids)))).scalars().all() if ids else []
-        else:
-            if scope == "near":
-                q = q.where(Pool.status.in_(("open", "funded")))
-            rows = (await session.execute(q)).scalars().all()
-            if scope == "near":
-                rows = [p for p in rows if haversine_km(m.lat, m.lng, p.center_lat, p.center_lng) <= 3.5]
-            rows = [p for p in rows if await pools.visible_to_merchant(session, p, m)]
-    else:
-        if scope == "mine" and user.role == "distributor" and user.distributor:
-            q = q.where(Pool.distributor_id == user.distributor.id)
-        elif scope == "near":
-            q = q.where(Pool.status.in_(("open", "funded")))
-        rows = (await session.execute(q)).scalars().all()
+        if scope == "near":
+            views = [v for v in views if haversine_km(m.lat, m.lng, v.pool.center_lat, v.pool.center_lng) <= 3.5]
+        if scope != "mine":
+            views = [v for v in views if v.visible_to_viewer()]
     order = {"open": 0, "funded": 1, "settled": 2, "failed": 3, "draft": 4}
-    rows = sorted(rows, key=lambda p: (order.get(p.status, 9),
-                                       p.deadline.timestamp() if p.status == "open" else -p.created_at.timestamp()))[:60]
-    return [await pools.serialize(session, p, m) for p in rows]
+    views = sorted(views, key=lambda v: (order.get(v.pool.status, 9), v.pool.deadline.timestamp()
+                                         if v.pool.status == "open" else -v.pool.created_at.timestamp()))[:60]
+    return await pools.serialize_many(session, views, viewer=m is not None)
 
 
 @router.get("/pools/{pool_id}")
 async def get_pool(pool_id: str, user: CurrentUser = Depends(current_user), session: AsyncSession = Depends(get_session)):
-    p = await pools.get_pool(session, pool_id)
-    await pools.ensure_fresh(session, p)
+    """3 statements: auth, pool (+ viewer joins), members."""
     m = user.merchant if user.role == "merchant" else None
-    if m is not None and not await pools.visible_to_merchant(session, p, m):
+    v = await pools.get_view(session, pool_id, m.id if m else None)
+    if m is not None and not v.visible_to_viewer():
         raise HTTPException(404, "Pool not found")
-    return await pools.serialize(session, p, m)
+    return (await pools.serialize_many(session, [v], viewer=m is not None))[0]
 
 
 @router.post("/pools/{pool_id}/commit")
 async def commit(pool_id: str, body: CommitBody, user: CurrentUser = Depends(merchant_user),
                  session: AsyncSession = Depends(get_session)):
-    p = await pools.get_pool(session, pool_id)
-    a, _notes = await actions.propose_commit(session, user.merchant, p, body.cases, body.use_credit, clamp=False)
+    a, _notes = await actions.propose_commit(session, user.merchant, pool_id, body.cases, body.use_credit, clamp=False)
     await session.commit()
     return actions.action_dict(a)
 
@@ -158,16 +151,15 @@ async def voice_turn(audio: UploadFile | None = File(default=None), text: str | 
 @router.get("/m/deliveries")
 async def my_deliveries(user: CurrentUser = Depends(merchant_user), session: AsyncSession = Depends(get_session)):
     m = user.merchant
-    rows = (await session.execute(select(PoolCommitment, Pool).join(Pool, Pool.id == PoolCommitment.pool_id)
-                                  .where(PoolCommitment.merchant_id == m.id,
-                                         Pool.status.in_(("funded", "settled", "failed")))
-                                  .order_by(Pool.deadline.desc()))).all()
+    views = await pools.fresh_views(
+        session, and_(Pool.status.in_(("funded", "settled", "failed")),
+                      Pool.id.in_(select(PoolCommitment.pool_id).where(PoolCommitment.merchant_id == m.id))), m.id)
+    views.sort(key=lambda v: v.pool.deadline, reverse=True)
     out = []
-    for c, p in rows:
-        d = await session.get(Delivery, (p.id, m.id))
-        status = "refunded" if c.status == "refunded" else (d.status if d else "pending")
-        out.append({"pool": await pools.serialize(session, p, m), "cases": c.cases, "amount_paise": c.amount_paise,
-                    "status": status})
+    for v, d in zip(views, await pools.serialize_many(session, views, viewer=True)):
+        c = v.mine
+        status = "refunded" if c.status == "refunded" else (v.delivery.status if v.delivery else "pending")
+        out.append({"pool": d, "cases": c.cases, "amount_paise": c.amount_paise, "status": status})
     return out
 
 
@@ -179,22 +171,26 @@ async def confirm_delivery(body: DeliveryConfirmBody, user: CurrentUser = Depend
     if data["m"] != str(m.id):
         raise HTTPException(403, "This QR is for a different shop")
     async with pools.POOL_LOCK:
-        p = await pools.get_pool(session, data["p"], for_update=True)
-        d = await session.get(Delivery, (p.id, m.id))
+        views = await pools.load_views(session, Pool.id == pools._uuid(data["p"]), m.id, for_update=True,
+                                       refresh=True)
+        if not views:
+            raise HTTPException(404, "Pool not found")
+        v = views[0]
+        p, d = v.pool, v.delivery
         if not d:
             raise HTTPException(404, "No delivery for this shop in this pool")
         if d.status == "pending" and d.qr_nonce != data["n"]:
             raise HTTPException(409, "This QR was already used. Ask for a fresh one.")
-        res = await pools.confirm_delivery(session, p, m)
+        res = await pools.confirm_delivery(session, p, m, members=v.members)
         res["delivery"].qr_nonce = secrets.token_hex(8)  # single use
         score, delta = await trust.refresh(session, m)
-        sku = await session.get(Sku, p.sku_id)
+        st = await cache.static(session)
+        sku = st.skus[p.sku_id]
         hi, en = nudges.delivery_text(m, sku.name, sku.name_hi, res["commitment"].cases, res["payout_paise"], score,
                                       delta)
         await nudges.create(session, m, "delivery", hi, en, p.id, llm_ok=False)
         await session.commit()
-    await session.refresh(p)
-    return {"pool": await pools.serialize(session, p, m), "tx": tx_ref(res["tx"]),
+    return {"pool": pools.serialize_view(v, st, viewer=True), "tx": tx_ref(res["tx"]),
             "payout_paise": res["payout_paise"], "fee_paise": res["fee_paise"],
             "attestation_url": easscan_url(res["delivery"].attestation_uid),
             "trust": {"score": score, "delta": delta}}

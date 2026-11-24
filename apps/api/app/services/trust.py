@@ -90,24 +90,76 @@ async def compute(session: AsyncSession, merchant: Merchant) -> dict:
     }
 
 
+_scores: dict = {}  # merchant id -> stored score (in-process mirror of trust_scores)
+
+
+def clear_cache() -> None:
+    _scores.clear()
+
+
+def _score_from(rows, merchant, now) -> tuple[int, dict]:
+    """rows: [(commitment_status, pool_status, pool_delivery_deadline)] for one merchant."""
+    n_del = sum(1 for cs, _ps, _dl in rows if cs == "delivered")
+    n_def = sum(1 for cs, ps, dl in rows if cs == "committed" and ps in ("funded", "settled") and dl < now)
+    honoured = n_del / (n_del + n_def) if (n_del + n_def) else NEW_MERCHANT_HONOURED_PRIOR
+    tenure = months_between(merchant.onboarded_on, clock.today())
+    comps = {"honoured_rate": round(honoured, 3), "pools_joined": n_del,
+             "sales_stability": round(merchant.sales_stability, 3), "tenure_months": round(tenure, 1)}
+    return score_formula(honoured, n_del, merchant.sales_stability, tenure), comps
+
+
+async def refresh_many(session: AsyncSession, merchants) -> dict:
+    """Recompute + store scores for many shops in 3 statements. Returns {merchant_id: (score, delta)}.
+    `merchants`: ORM Merchant or cache.MerchantInfo objects."""
+    from sqlalchemy import bindparam, update
+
+    ms = {m.id: m for m in merchants}
+    if not ms:
+        return {}
+    now = clock.now()
+    hist: dict = {mid: [] for mid in ms}
+    for mid, cs, ps, dl in (await session.execute(
+            select(PoolCommitment.merchant_id, PoolCommitment.status, Pool.status, Pool.delivery_deadline)
+            .join(Pool, Pool.id == PoolCommitment.pool_id)
+            .where(PoolCommitment.merchant_id.in_(list(ms))))).all():
+        hist[mid].append((cs, ps, dl))
+    old = {mid: sc for mid, sc in (await session.execute(
+        select(TrustScore.merchant_id, TrustScore.score).where(TrustScore.merchant_id.in_(list(ms))))).all()}
+    out, upd, new = {}, [], []
+    for mid, m in ms.items():
+        score, comps = _score_from(hist[mid], m, now)
+        prev = old.get(mid, score)
+        out[mid] = (score, score - prev)
+        _scores[mid] = score
+        if mid in old:
+            upd.append({"b_addr": m.wallet_address, "score": score, "components": comps, "updated_at": now})
+        else:
+            new.append(TrustScore(subject_address=m.wallet_address, subject_type="merchant", merchant_id=mid,
+                                  score=score, components=comps, updated_at=now))
+    if upd:
+        t = TrustScore.__table__
+        await session.execute(update(t).where(t.c.subject_address == bindparam("b_addr"))
+                              .values(score=bindparam("score"), components=bindparam("components"),
+                                      updated_at=bindparam("updated_at")), upd)
+    session.add_all(new)
+    from . import cache
+
+    cache.bump()
+    return out
+
+
 async def refresh(session: AsyncSession, merchant: Merchant) -> tuple[int, int]:
     """Recompute and store; returns (new_score, delta vs the stored score)."""
-    t = await compute(session, merchant)
-    row = await session.get(TrustScore, merchant.wallet_address)
-    old = row.score if row else t["score"]
-    if row is None:
-        row = TrustScore(subject_address=merchant.wallet_address, subject_type="merchant", merchant_id=merchant.id,
-                         score=t["score"], components=t["components"], updated_at=clock.now())
-        session.add(row)
-    else:
-        row.score, row.components, row.updated_at = t["score"], t["components"], clock.now()
-    return t["score"], t["score"] - old
+    return (await refresh_many(session, [merchant]))[merchant.id]
 
 
 async def stored_score(session: AsyncSession, merchant: Merchant) -> int:
-    row = await session.get(TrustScore, merchant.wallet_address)
+    if merchant.id in _scores:
+        return _scores[merchant.id]
+    row = (await session.execute(select(TrustScore.score).where(TrustScore.merchant_id == merchant.id))).first()
     if row:
-        return row.score
+        _scores[merchant.id] = row[0]
+        return row[0]
     score, _ = await refresh(session, merchant)
     await session.commit()
     return score

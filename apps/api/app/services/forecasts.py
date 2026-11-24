@@ -102,24 +102,40 @@ async def need_for_sku(session: AsyncSession, merchant_id: uuid.UUID, sku: Sku, 
             "forecast": f}
 
 
-async def forecast_summaries(session: AsyncSession, merchant: Merchant, top: int = 3) -> list[dict]:
+async def forecast_summaries(session: AsyncSession, merchant: Merchant, top: int = 3,
+                             invited_sku_ids: list | None = None) -> list[dict]:
+    """Top categories by uplift. need_cases uses the SKU of an open invite in that category (pass
+    `invited_sku_ids` when the caller already has them), else the category's main SKU.
+    Statements: forecasts 1 (+ compute on a cache miss) + inventory 1."""
+    from . import cache
+
+    st = await cache.static(session)
     fcs = await current_forecasts(session, merchant.id)
     fcs = sorted(fcs, key=lambda f: f.uplift, reverse=True)[:top]
-    # SKU used for need_cases: the one in an open invite for this category, else the category's main SKU
-    invited = (await session.execute(
-        select(Sku).join(Pool, Pool.sku_id == Sku.id).join(PoolInvite, PoolInvite.pool_id == Pool.id)
-        .where(PoolInvite.merchant_id == merchant.id, Pool.status == "open"))).scalars().all()
+    if invited_sku_ids is None:
+        invited_sku_ids = [r[0] for r in (await session.execute(
+            select(Pool.sku_id).join(PoolInvite, PoolInvite.pool_id == Pool.id)
+            .where(PoolInvite.merchant_id == merchant.id, Pool.status == "open"))).all()]
+    invited = [st.skus[i] for i in invited_sku_ids if i in st.skus]
+    chosen = {}
+    for f in fcs:
+        sku = next((s for s in invited if s.category == f.category), None)
+        if sku is None:
+            cands = [s for s in st.skus.values() if s.category == f.category]
+            sku = max(cands, key=lambda s: s.sku_share) if cands else None
+        chosen[f.category] = sku
+    sku_ids = [s.id for s in chosen.values() if s is not None]
+    stock = {}
+    if sku_ids:
+        stock = {sid: q for sid, q in (await session.execute(
+            select(Inventory.sku_id, Inventory.qty_units).where(Inventory.merchant_id == merchant.id,
+                                                                Inventory.sku_id.in_(sku_ids)))).all()}
     out = []
     for f in fcs:
         meta = category_meta(f.category)
-        sku = next((s for s in invited if s.category == f.category), None)
-        if sku is None:
-            sku = (await session.execute(select(Sku).where(Sku.category == f.category)
-                                         .order_by(Sku.sku_share.desc()))).scalars().first()
-        need = None
-        if sku:
-            stock = await stock_units(session, merchant.id, sku.id)
-            need = fs.need_cases({"p50": f.p50, "p90": f.p90}, sku_ml(sku), stock)["need_cases"]
+        sku = chosen[f.category]
+        need = (fs.need_cases({"p50": f.p50, "p90": f.p90}, sku_ml(sku), stock.get(sku.id, 0))["need_cases"]
+                if sku else None)
         days = (f.window_end - f.window_start).days + 1
         out.append({
             "category": f.category, "label_hi": meta["hi"], "label_en": meta["en"], "emoji": meta["emoji"],

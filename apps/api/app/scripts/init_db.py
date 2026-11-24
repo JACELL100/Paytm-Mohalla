@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
+from ..core.loops import use_selector_policy
 from ..core.db import Base, engine
 from .. import models  # noqa: F401  (register tables)
 
@@ -21,6 +22,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--drop", action="store_true", help="drop existing tables first")
     a = ap.parse_args()
+    use_selector_policy()
     asyncio.run(init(a.drop))
     print("tables ready" + (" (dropped first)" if a.drop else ""))
 

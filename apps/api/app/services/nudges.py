@@ -20,6 +20,11 @@ MAX_WORDS = 30
 _last_at = None
 
 
+def reset_stamp() -> None:
+    global _last_at
+    _last_at = None
+
+
 def _stamp(at):
     """Strictly increasing created_at so 'newest first' is stable even when the demo clock is frozen."""
     global _last_at

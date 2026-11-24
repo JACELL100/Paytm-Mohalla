@@ -14,8 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core import clock
-from ..models import Merchant, PendingAction, Pool, PoolCommitment, PoolInvite, Sku
-from . import credit, forecasts, nudges, pools
+from ..chain.outbox import tx_ref
+from ..models import Merchant, PendingAction, Pool, PoolInvite
+from . import cache, credit, forecasts, nudges, pools
 from .common import fmt_inr
 
 ACTION_TTL = timedelta(minutes=5)
@@ -27,13 +28,15 @@ class GuardrailError(HTTPException):
         self.cap = cap
 
 
-async def need_cap(session: AsyncSession, pool: Pool, m: Merchant) -> tuple[int, int]:
+async def need_cap(session: AsyncSession, pool: Pool, m: Merchant, inv: PoolInvite | None = None,
+                   have_invite: bool = False) -> tuple[int, int]:
     """(need_cases, max cases allowed by the 2x-need guardrail)."""
-    inv = await session.get(PoolInvite, (pool.id, m.id))
+    if not have_invite:
+        inv = await session.get(PoolInvite, (pool.id, m.id))
     if inv and inv.reason and inv.reason.get("need_cases") is not None:
         need = int(inv.reason["need_cases"])
     else:
-        sku = await session.get(Sku, pool.sku_id)
+        sku = (await cache.static(session)).skus[pool.sku_id]
         need = int((await forecasts.need_for_sku(session, m.id, sku))["need_cases"])
     suggested = inv.suggested_cases if inv else 0
     return need, max(2 * need, suggested, 2)
@@ -61,20 +64,21 @@ async def open_actions(session: AsyncSession, m: Merchant) -> list[PendingAction
     return live
 
 
-async def propose_commit(session: AsyncSession, m: Merchant, pool: Pool, cases: int, use_credit: bool,
+async def propose_commit(session: AsyncSession, m: Merchant, pool: Pool | str | uuid.UUID, cases: int, use_credit: bool,
                          clamp: bool = False) -> tuple[PendingAction, list[str]]:
     """Create (or reuse) a PendingAction. With clamp=True (voice) over-large requests are reduced and
     the notes say why; otherwise they are rejected with HTTP 400."""
     notes: list[str] = []
-    await pools.ensure_fresh(session, pool)
+    v = await pools.get_view(session, pool.id if isinstance(pool, Pool) else pool, m.id)
+    pool = v.pool
     if pool.status != "open":
         raise GuardrailError(f"This pool is {pool.status}; it can't take new orders", 409)
-    if await session.get(PoolCommitment, (pool.id, m.id)):
+    if v.mine is not None:
         raise GuardrailError("You have already joined this pool", 409)
     if cases < 1:
         raise GuardrailError("Choose at least 1 case")
     remaining = pool.target_cases - pool.committed_cases
-    need, cap = await need_cap(session, pool, m)
+    need, cap = await need_cap(session, pool, m, v.invite, have_invite=True)
     if cases > remaining:
         if not clamp:
             raise GuardrailError(f"Only {remaining} cases are left in this pool", cap=remaining)
@@ -112,7 +116,7 @@ async def propose_commit(session: AsyncSession, m: Merchant, pool: Pool, cases: 
                 return a, notes
             a.status = "cancelled"  # superseded by the new proposal
 
-    sku = await session.get(Sku, pool.sku_id)
+    sku = (await cache.static(session)).skus[pool.sku_id]
     summary_hi = f"{cases} केस {sku.name_hi}, कुल {fmt_inr(amount)} ({fmt_inr(savings)} की बचत)।"
     summary_en = f"{cases} cases of {sku.name}, total {fmt_inr(amount)} (you save {fmt_inr(savings)})."
     if use_credit and offer:
@@ -139,6 +143,7 @@ async def get_action(session: AsyncSession, m: Merchant, action_id: str) -> Pend
 
 
 async def confirm(session: AsyncSession, m: Merchant, action_id: str) -> dict:
+    """Runs a pending commit: Pool Credit loan (if any) + commitment + outbox tx, in ~11 statements."""
     a = await get_action(session, m, action_id)
     if a.status == "confirmed":
         raise HTTPException(409, "Already confirmed")
@@ -150,18 +155,21 @@ async def confirm(session: AsyncSession, m: Merchant, action_id: str) -> dict:
         raise HTTPException(410, "This action expired (5 minutes). Please ask again.")
     p = a.payload
     async with pools.POOL_LOCK:
-        pool = await pools.get_pool(session, p["pool_id"], for_update=True)
-        await session.refresh(pool)
+        views = await pools.load_views(session, Pool.id == uuid.UUID(p["pool_id"]), m.id, for_update=True,
+                                       refresh=True)
+        if not views:
+            raise HTTPException(404, "Pool not found")
+        v = views[0]
+        pool = v.pool
         if pool.status == "open" and pool.deadline < clock.now():
-            await pools.fail_pool(session, pool)
+            await pools.fail_pool(session, pool, v.members)
             await session.commit()
         if pool.status != "open":
             raise HTTPException(409, f"Pool is {pool.status}")
-        if await session.get(PoolCommitment, (pool.id, m.id)):
+        if v.mine is not None:
             raise HTTPException(409, "You have already joined this pool")
         if pool.target_cases - pool.committed_cases < p["cases"]:
             raise HTTPException(409, f"Only {pool.target_cases - pool.committed_cases} cases left now; please retry")
-        await session.refresh(m)
         loan = None
         if p["use_credit"]:
             offer = dict(p["credit"] or {})
@@ -169,24 +177,18 @@ async def confirm(session: AsyncSession, m: Merchant, action_id: str) -> dict:
                 raise HTTPException(400, "Pool Credit is not available for this amount")
             offer["_decision"] = p.get("_decision") or {}
             loan = credit.make_loan(m, offer, pool.id)
-            session.add(loan)
-            await session.flush()
+            session.add(loan)  # inserted with the outbox row in commit_many's flush
         elif m.wallet_balance_paise < p["amount_paise"]:
             raise HTTPException(400, "Not enough wallet balance. Turn on Pool Credit.")
-        _c, tx = await pools.apply_commit(session, pool, m, p["cases"], loan=loan)
+        (c, tx), = await pools.commit_many(session, pool, [pools.Join(m, p["cases"], loan)], v.members)
         a.status = "confirmed"
         if loan:
             hi, en = nudges.credit_text(m, loan.amount_paise, loan.rate_bps)
             await nudges.create(session, m, "credit", hi, en, pool.id, llm_ok=False)
         await session.commit()
-    await session.refresh(pool)
-    return {"pool": await pools.serialize(session, pool, m), "tx": _tx(tx), "loan": credit.loan_dict(loan)}
-
-
-def _tx(tx):
-    from ..chain.outbox import tx_ref
-
-    return tx_ref(tx)
+    v.mine, v.commit_tx, v.loan = c, tx, loan
+    st = await cache.static(session)
+    return {"pool": pools.serialize_view(v, st, viewer=True), "tx": tx_ref(tx), "loan": credit.loan_dict(loan)}
 
 
 async def cancel(session: AsyncSession, m: Merchant, action_id: str) -> None:

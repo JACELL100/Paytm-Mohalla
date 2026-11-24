@@ -56,10 +56,20 @@ async def _supabase_user(token: str) -> dict:
     return user
 
 
+def _user_query():
+    return (select(Profile, Merchant, Distributor)
+            .outerjoin(Merchant, Merchant.id == Profile.merchant_id)
+            .outerjoin(Distributor, Distributor.id == Profile.distributor_id))
+
+
+async def _fetch(session: AsyncSession, where) -> CurrentUser | None:
+    """Profile + linked shop + distributor in ONE statement."""
+    row = (await session.execute(_user_query().where(where))).first()
+    return CurrentUser(row[0], row[1], row[2]) if row else None
+
+
 async def load_user(session: AsyncSession, profile: Profile) -> CurrentUser:
-    m = await session.get(Merchant, profile.merchant_id) if profile.merchant_id else None
-    d = await session.get(Distributor, profile.distributor_id) if profile.distributor_id else None
-    return CurrentUser(profile, m, d)
+    return await _fetch(session, Profile.id == profile.id)
 
 
 async def current_user(authorization: str | None = Header(default=None),
@@ -69,23 +79,24 @@ async def current_user(authorization: str | None = Header(default=None),
     token = authorization.split(" ", 1)[1].strip()
     mode = settings.effective_auth_mode
     if token.startswith("dev-") and (mode == "dev" or settings.demo_mode):
-        p = (await session.execute(select(Profile).where(Profile.dev_token == token))).scalar_one_or_none()
-        if not p:
+        u = await _fetch(session, Profile.dev_token == token)
+        if not u:
             raise HTTPException(401, "Unknown dev token. Use one from GET /demo/accounts")
-        return await load_user(session, p)
+        return u
     if mode != "supabase":
         raise HTTPException(401, "Invalid token (auth_mode=dev: use a token from GET /demo/accounts)")
     user = await _supabase_user(token)
     uid = uuid.UUID(user["id"])
-    p = await session.get(Profile, uid)
-    if not p:
-        meta = user.get("user_metadata") or {}
-        p = Profile(id=uid, role=None, email=user.get("email"),
-                    display_name=meta.get("full_name") or meta.get("name") or (user.get("email") or "").split("@")[0],
-                    lang="hi", created_at=clock.now())
-        session.add(p)
-        await session.commit()
-    return await load_user(session, p)
+    u = await _fetch(session, Profile.id == uid)
+    if u:
+        return u
+    meta = user.get("user_metadata") or {}
+    p = Profile(id=uid, role=None, email=user.get("email"),
+                display_name=meta.get("full_name") or meta.get("name") or (user.get("email") or "").split("@")[0],
+                lang="hi", created_at=clock.now())
+    session.add(p)
+    await session.commit()
+    return CurrentUser(p, None, None)
 
 
 def require_role(*roles: str):

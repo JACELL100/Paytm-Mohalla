@@ -140,7 +140,7 @@ interface PendingAction { id: string; kind: 'commit';
 | POST | `/demo/run-pool-engine` | | Runs pool formation now (at most 4 new pools per run, best first); returns `{created: Pool[]}` |
 | POST | `/demo/pools/{id}/simulate-joins` | `{fill: true}` or `{count}` (body optional) | Other seeded shops commit until the target is reached; returns `Pool` + `joined` |
 | POST | `/demo/pools/{id}/simulate-delivery` | `{merchant_id?}` (body optional) | Confirms delivery for one or all members except the demo merchant; returns `Pool` + `delivered` |
-| POST | `/demo/reset` | | Restores the seeded demo state (< 3 s) and restarts the clock; returns `{ok, now, pools: [cola_id, chips_id, oil_id], trust, seconds}`. Pool ids change on every reset |
+| POST | `/demo/reset` | | Restores the seeded demo state (< 3 s) and restarts the clock; returns `{ok, now, pools: [cola_id, chips_id, oil_id], trust, mode: 'snapshot'|'full', seconds}`. Pool ids change on every reset |
 
 ## Seeded demo state (both sides can rely on this)
 - Demo merchant: **Ramesh General Store** (owner Ramesh Gupta, kirana, Marol, Andheri East), token `dev-merchant`.
